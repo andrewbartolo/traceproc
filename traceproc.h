@@ -13,6 +13,41 @@
 #include <unordered_map>
 #include <vector>
 
+/*
+ * Inner class that tracks metadata for a given virtual page (VPage).
+ */
+class VPage {
+    public:
+        VPage(uint16_t placement);
+        bool do_read(uint16_t requesting_node);
+        bool do_write(uint16_t requesting_node);
+
+        uint16_t placement;
+        uint64_t on_node_reads = 0;
+        uint64_t on_node_writes = 0;
+        uint64_t off_node_reads = 0;
+        uint64_t off_node_writes = 0;
+};
+
+/*
+ * Inline class definitions.
+ */
+/*
+ * Returns true if on-node, false if off-node.
+ */
+inline bool
+VPage::do_read(uint16_t requesting_node)
+{
+    (placement == requesting_node) ? ++on_node_reads : ++off_node_reads;
+    return placement == requesting_node;
+}
+
+inline bool
+VPage::do_write(uint16_t requesting_node)
+{
+    (placement == requesting_node) ? ++on_node_writes : ++off_node_writes;
+    return placement == requesting_node;
+}
 
 class Traceproc {
     public:
@@ -44,7 +79,7 @@ class Traceproc {
         void parse_and_validate_args(int argc, char* argv[]);
         void read_input_file();
         inline uint64_t line_addr_to_page_addr(uint64_t line_addr);
-        inline uint16_t map_addr_to_node(uint64_t page_addr,
+        inline VPage* map_addr_to_vpage(uint64_t page_addr,
                 uint16_t requesting_node);
         inline void process_entry(trace_entry_t* e);
         void aggregate_stats();
@@ -61,7 +96,26 @@ class Traceproc {
         int64_t page_size_log2;
 
         // stats
-        std::unordered_map<uint64_t, uint16_t> placement_map;
+        std::unordered_map<uint64_t, VPage> vpages;
+        std::vector<uint64_t> physical_node_reads;
+        std::vector<uint64_t> physical_node_writes;
+        uint64_t on_node_reads = 0;
+        uint64_t on_node_writes = 0;
+        uint64_t off_node_reads = 0;
+        uint64_t off_node_writes = 0;
+        uint64_t on_node_combined = 0;
+        uint64_t off_node_combined = 0;
+
+        double pct_on_node_combined = 0.0;
+
+        double mean_physical_node_reads = 0.0;
+        double mean_physical_node_writes = 0.0;
+        double var_physical_node_reads = 0.0;
+        double var_physical_node_writes = 0.0;
+        double stdev_physical_node_reads = 0.0;
+        double stdev_physical_node_writes = 0.0;
+
+
         std::vector<std::vector<uint64_t>> read_counts;
         std::vector<std::vector<uint64_t>> write_counts;
         std::vector<std::vector<uint64_t>> combined_counts;

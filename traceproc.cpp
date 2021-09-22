@@ -8,11 +8,17 @@
 #include "traceproc.h"
 
 
+VPage::VPage(uint16_t placement) : placement(placement)
+{
+}
+
 Traceproc::Traceproc(int argc, char* argv[])
 {
     parse_and_validate_args(argc, argv);
 
     // allocate space in the vectors
+    physical_node_reads.resize(n_nodes);
+    physical_node_writes.resize(n_nodes);
     read_counts.resize(n_nodes);
     write_counts.resize(n_nodes);
     combined_counts.resize(n_nodes);
@@ -31,6 +37,7 @@ Traceproc::Traceproc(int argc, char* argv[])
 
 Traceproc::~Traceproc()
 {
+
 }
 
 void
@@ -133,24 +140,27 @@ Traceproc::line_addr_to_page_addr(uint64_t line_addr)
     return line_addr >> (page_size_log2 - line_size_log2);
 }
 
-inline uint16_t
-Traceproc::map_addr_to_node(uint64_t page_addr, uint16_t requesting_node)
+/*
+ * Find the metadata entry in the page map, creating one if it doesn't exist.
+ */
+inline VPage*
+Traceproc::map_addr_to_vpage(uint64_t page_addr, uint16_t requesting_node)
 {
-    auto it = placement_map.find(page_addr);
+    auto it = vpages.find(page_addr);
     // return existing placement, if it exists
-    if (it != placement_map.end()) return it->second;
+    if (it != vpages.end()) return &it->second;
 
 
     // place for the first time
     if (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH) {
-        placement_map[page_addr] = requesting_node;
+        vpages.insert(std::make_pair(page_addr, requesting_node));
     }
     else if (allocation_mode == ALLOCATION_MODE_INTERLEAVE) {
-        placement_map[page_addr] = curr_interleave_node;
+        vpages.insert(std::make_pair(page_addr, curr_interleave_node));
         curr_interleave_node = (curr_interleave_node + 1) % n_nodes;
     }
 
-    return placement_map[page_addr];
+    return &vpages.at(page_addr);
 }
 
 
@@ -161,10 +171,14 @@ Traceproc::process_entry(trace_entry_t* e)
     bool is_write = e->is_write;
     uint16_t requesting_node = e->node_num;
 
-    uint16_t resident_node = map_addr_to_node(page_addr, requesting_node);
+    VPage* vp = map_addr_to_vpage(page_addr, requesting_node);
 
-    if (!is_write) ++read_counts[requesting_node][resident_node];
-    else           ++write_counts[requesting_node][resident_node];
+    bool is_on_node;
+    if (is_write) is_on_node = vp->do_write(requesting_node);
+    else          is_on_node = vp->do_read(requesting_node);
+
+    if (is_write) ++physical_node_writes[vp->placement];
+    else          ++physical_node_reads[vp->placement];
 }
 
 void
@@ -210,6 +224,50 @@ Traceproc::read_input_file()
 void
 Traceproc::aggregate_stats()
 {
+    printf("Aggregating stats...\n");
+
+    for (auto& kv : vpages) {
+        auto& vp = kv.second;
+        on_node_reads += vp.on_node_reads;
+        on_node_writes += vp.on_node_writes;
+        off_node_reads += vp.off_node_reads;
+        off_node_writes += vp.off_node_writes;
+    }
+
+    on_node_combined = on_node_reads + on_node_writes;
+    off_node_combined = off_node_reads + off_node_writes;
+
+    mean_physical_node_reads = (double) std::accumulate(
+            physical_node_reads.begin(), physical_node_reads.end(), 0.0) /
+            (double) n_nodes;
+    mean_physical_node_writes = (double) std::accumulate(
+            physical_node_writes.begin(), physical_node_writes.end(), 0.0) /
+            (double) n_nodes;
+
+    std::vector<double> squared_err_reads;
+    std::vector<double> squared_err_writes;
+    squared_err_reads.resize(n_nodes);
+    squared_err_writes.resize(n_nodes);
+    for (size_t i = 0; i < n_nodes; ++i) {
+        squared_err_reads[i] = std::pow((double) physical_node_reads[i] -
+                mean_physical_node_reads, 2);
+        squared_err_writes[i] = std::pow((double) physical_node_writes[i] -
+                mean_physical_node_writes, 2);
+    }
+
+    var_physical_node_reads = (double) std::accumulate(
+            squared_err_reads.begin(), squared_err_reads.end(), 0.0) /
+            (double) n_nodes;
+    var_physical_node_writes = (double) std::accumulate(
+            squared_err_writes.begin(), squared_err_writes.end(), 0.0) /
+            (double) n_nodes;
+    stdev_physical_node_reads = std::sqrt(var_physical_node_reads);
+    stdev_physical_node_writes = std::sqrt(var_physical_node_writes);
+
+    pct_on_node_combined = (double) on_node_combined / (double)
+            (on_node_combined + off_node_combined);
+
+    /*
     for (size_t i = 0; i < n_nodes; ++i) {
         for (size_t j = 0; j < n_nodes; ++j) {
             combined_counts[i][j] = read_counts[i][j] + write_counts[i][j];
@@ -223,12 +281,36 @@ Traceproc::aggregate_stats()
             combined_col_marginals[j] += combined_counts[i][j];
         }
     }
+    */
 }
 
 void
 Traceproc::print_stats()
 {
+    printf("Printing stats...\n");
     printf("Allocation mode: %s\n", allocation_mode_str.c_str());
+
+    printf("Physical node reads:\n");
+    for (auto& r : physical_node_reads) printf("%9zu", r);
+    printf("\n");
+
+    printf("Physical node writes:\n");
+    for (auto& r : physical_node_writes) printf("%9zu", r);
+    printf("\n");
+
+    printf("Total on-node reads: %zu\n", on_node_reads);
+    printf("Total off-node reads: %zu\n", off_node_reads);
+    printf("Total on-node writes: %zu\n", on_node_writes);
+    printf("Total off-node writes: %zu\n", off_node_writes);
+    printf("Total on-node combined: %zu\n", on_node_combined);
+    printf("Total off-node combined: %zu\n", off_node_combined);
+
+    printf("Stdev, physical node reads: %.3f\n", stdev_physical_node_reads);
+    printf("Stdev, physical node writes: %.3f\n", stdev_physical_node_writes);
+    printf("Pct. on-node, combined r+w: %.3f\n", pct_on_node_combined);
+
+
+    /*
 
     // print out the read, write, and combined matrices
     printf("Reads matrix:\n");
@@ -273,6 +355,7 @@ Traceproc::print_stats()
         printf("%9zu ", combined_col_marginals[j]);
     }
     printf("\n\n\n");
+    */
 }
 
 
