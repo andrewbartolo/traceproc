@@ -18,11 +18,15 @@
  */
 class VPage {
     public:
-        VPage(uint16_t placement);
+        VPage(uint16_t placement, uint16_t n_nodes);
         bool do_read(uint16_t requesting_node);
         bool do_write(uint16_t requesting_node);
 
         uint16_t placement;
+
+        std::vector<uint64_t> node_accesses_since_placement;
+        uint64_t sum_node_accesses_since_placement = 0;
+
         uint64_t on_node_reads = 0;
         uint64_t on_node_writes = 0;
         uint64_t off_node_reads = 0;
@@ -39,6 +43,8 @@ inline bool
 VPage::do_read(uint16_t requesting_node)
 {
     (placement == requesting_node) ? ++on_node_reads : ++off_node_reads;
+    ++node_accesses_since_placement[requesting_node];
+    ++sum_node_accesses_since_placement;
     return placement == requesting_node;
 }
 
@@ -46,6 +52,8 @@ inline bool
 VPage::do_write(uint16_t requesting_node)
 {
     (placement == requesting_node) ? ++on_node_writes : ++off_node_writes;
+    ++node_accesses_since_placement[requesting_node];
+    ++sum_node_accesses_since_placement;
     return placement == requesting_node;
 }
 
@@ -69,6 +77,8 @@ class Traceproc {
 
         typedef enum {
             ALLOCATION_MODE_FIRST_TOUCH,
+            ALLOCATION_MODE_FIRST_TOUCH_M,
+            ALLOCATION_MODE_FIRST_TOUCH_M_W,
             ALLOCATION_MODE_INTERLEAVE,
             ALLOCATION_MODE_INVALID
         } allocation_mode_t;
@@ -81,6 +91,7 @@ class Traceproc {
         inline uint64_t line_addr_to_page_addr(uint64_t line_addr);
         inline VPage* map_addr_to_vpage(uint64_t page_addr,
                 uint16_t requesting_node);
+        inline void do_migrate(VPage* vp, uint16_t new_node);
         inline void process_entry(trace_entry_t* e);
         void aggregate_stats();
         void print_stats();
@@ -89,6 +100,7 @@ class Traceproc {
         std::string input_filepath;
         std::string allocation_mode_str;
         allocation_mode_t allocation_mode;
+        int64_t access_interval;
         int64_t n_nodes;
         int64_t line_size;
         int64_t page_size;
@@ -106,6 +118,9 @@ class Traceproc {
         uint64_t on_node_combined = 0;
         uint64_t off_node_combined = 0;
 
+        uint64_t max_physical_node_reads = 0;
+        uint64_t max_physical_node_writes = 0;
+
         double pct_on_node_combined = 0.0;
 
         double mean_physical_node_reads = 0.0;
@@ -114,6 +129,8 @@ class Traceproc {
         double var_physical_node_writes = 0.0;
         double stdev_physical_node_reads = 0.0;
         double stdev_physical_node_writes = 0.0;
+        double dist_physical_node_reads = 0.0;
+        double dist_physical_node_writes = 0.0;
 
 
         std::vector<std::vector<uint64_t>> read_counts;

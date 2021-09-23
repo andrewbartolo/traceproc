@@ -8,8 +8,9 @@
 #include "traceproc.h"
 
 
-VPage::VPage(uint16_t placement) : placement(placement)
+VPage::VPage(uint16_t placement, uint16_t n_nodes) : placement(placement)
 {
+    node_accesses_since_placement.resize(n_nodes);
 }
 
 Traceproc::Traceproc(int argc, char* argv[])
@@ -51,14 +52,18 @@ Traceproc::parse_and_validate_args(int argc, char* argv[])
     // sentinels
     input_filepath = "";
     allocation_mode = ALLOCATION_MODE_INVALID;
+    access_interval = -1;
     n_nodes = -1;
     line_size = -1;
     page_size = -1;
 
     // parse
-    while ((c = getopt(argc, argv, "i:m:n:l:p:")) != -1) {
+    while ((c = getopt(argc, argv, "a:i:m:n:l:p:")) != -1) {
         try {
             switch (c) {
+                case 'a':
+                    access_interval = std::stol(optarg);
+                    break;
                 case 'i':
                     input_filepath = optarg;
                     break;
@@ -67,8 +72,12 @@ Traceproc::parse_and_validate_args(int argc, char* argv[])
                     std::transform(allocation_mode_str.begin(),
                             allocation_mode_str.end(),
                             allocation_mode_str.begin(), ::tolower);
-                    if (allocation_mode_str == "firsttouch")
+                    if (allocation_mode_str == "ft")
                         allocation_mode = ALLOCATION_MODE_FIRST_TOUCH;
+                    else if (allocation_mode_str == "ftm")
+                        allocation_mode = ALLOCATION_MODE_FIRST_TOUCH_M;
+                    else if (allocation_mode_str == "ftmw")
+                        allocation_mode = ALLOCATION_MODE_FIRST_TOUCH_M_W;
                     else if (allocation_mode_str == "interleave")
                         allocation_mode = ALLOCATION_MODE_INTERLEAVE;
                     break;
@@ -99,10 +108,14 @@ Traceproc::parse_and_validate_args(int argc, char* argv[])
             "flag");
 
     if (allocation_mode == ALLOCATION_MODE_INVALID)
-        print_message_and_die("allocation mode must be either 'firsttouch' or "
-                "'interleave': <-m MODE>");
+        print_message_and_die("allocation mode must be either 'ft', 'ftm',"
+                "'ftmw', or 'interleave': <-m MODE>");
     if (input_filepath == "")
         print_message_and_die("must supply input file: <-i INPUT_FILE>");
+    if (access_interval == -1 and
+            ((allocation_mode == ALLOCATION_MODE_FIRST_TOUCH_M) or
+             (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH_M_W)))
+        print_message_and_die("must supply access interval: <-a INTERVAL>");
     if (n_nodes == -1)
         print_message_and_die("must supply number of nodes: <-n N_NODES>");
     if (line_size == -1)
@@ -152,15 +165,32 @@ Traceproc::map_addr_to_vpage(uint64_t page_addr, uint16_t requesting_node)
 
 
     // place for the first time
-    if (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH) {
-        vpages.insert(std::make_pair(page_addr, requesting_node));
+    if ((allocation_mode == ALLOCATION_MODE_FIRST_TOUCH) or
+        (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH_M) or
+        (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH_M_W)) {
+        auto vp = VPage(requesting_node, n_nodes);
+        vpages.emplace(page_addr, std::move(vp));
     }
     else if (allocation_mode == ALLOCATION_MODE_INTERLEAVE) {
-        vpages.insert(std::make_pair(page_addr, curr_interleave_node));
+        auto vp = VPage(curr_interleave_node, n_nodes);
+        vpages.emplace(page_addr, std::move(vp));
         curr_interleave_node = (curr_interleave_node + 1) % n_nodes;
     }
 
     return &vpages.at(page_addr);
+}
+
+/*
+ * Migrates the VPage to its new node and resets some access-tracking state.
+ */
+inline void
+Traceproc::do_migrate(VPage* vp, uint16_t new_node)
+{
+    vp->placement = new_node;
+
+    std::fill(vp->node_accesses_since_placement.begin(),
+            vp->node_accesses_since_placement.end(), 0);
+    vp->sum_node_accesses_since_placement = 0;
 }
 
 
@@ -179,6 +209,39 @@ Traceproc::process_entry(trace_entry_t* e)
 
     if (is_write) ++physical_node_writes[vp->placement];
     else          ++physical_node_reads[vp->placement];
+
+
+    // are we in a migration mode?
+    if ((allocation_mode == ALLOCATION_MODE_FIRST_TOUCH) or
+        (allocation_mode == ALLOCATION_MODE_INTERLEAVE)) return;
+
+    // we're in an interval-migration mode, and we hit the interval
+    if (((vp->sum_node_accesses_since_placement + 1) % access_interval) == 0) {
+
+
+        // first-touch-m: migrate if accessed more often by a diff. node
+        // get argmax of vector
+        int64_t max_val = -1;
+        uint64_t argmax;
+        for (size_t i = 0; i < vp->node_accesses_since_placement.size(); ++i) {
+            uint64_t a = vp->node_accesses_since_placement[i];
+            if (max_val < a) {
+                max_val = a;
+                argmax = i;
+            }
+        }
+
+        bool should_migrate = argmax != vp->placement;
+        // if FIRST_TOUCH_M_W, have the add'tl constraint that destination node
+        // must have fewer writes than curr. node
+        if (allocation_mode == ALLOCATION_MODE_FIRST_TOUCH_M_W) {
+            should_migrate &= (physical_node_writes[argmax] <
+                    physical_node_writes[vp->placement]);
+        }
+
+        if (should_migrate) do_migrate(vp, argmax);
+        // TODO: ++physical_node_writes for migrated-to host
+    }
 }
 
 void
@@ -264,6 +327,18 @@ Traceproc::aggregate_stats()
     stdev_physical_node_reads = std::sqrt(var_physical_node_reads);
     stdev_physical_node_writes = std::sqrt(var_physical_node_writes);
 
+    max_physical_node_reads = *std::max_element(physical_node_reads.begin(),
+            physical_node_reads.end());
+    max_physical_node_writes = *std::max_element(physical_node_writes.begin(),
+            physical_node_writes.end());
+
+    // custom statistic: compute (max - mean) / mean
+    dist_physical_node_reads = ((double) max_physical_node_reads -
+            mean_physical_node_reads) / mean_physical_node_reads;
+    dist_physical_node_writes = ((double) max_physical_node_writes -
+            mean_physical_node_writes) / mean_physical_node_writes;
+
+
     pct_on_node_combined = (double) on_node_combined / (double)
             (on_node_combined + off_node_combined);
 
@@ -307,6 +382,10 @@ Traceproc::print_stats()
 
     printf("Stdev, physical node reads: %.3f\n", stdev_physical_node_reads);
     printf("Stdev, physical node writes: %.3f\n", stdev_physical_node_writes);
+
+    printf("Dist. physical node reads: %.3f\n", dist_physical_node_reads);
+    printf("Dist. physical node writes: %.3f\n", dist_physical_node_writes);
+
     printf("Pct. on-node, combined r+w: %.3f\n", pct_on_node_combined);
 
 
