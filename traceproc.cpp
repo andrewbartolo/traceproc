@@ -331,12 +331,17 @@ Traceproc::aggregate_stats()
             physical_node_reads.end());
     max_physical_node_writes = *std::max_element(physical_node_writes.begin(),
             physical_node_writes.end());
+    min_physical_node_reads = *std::min_element(physical_node_reads.begin(),
+            physical_node_reads.end());
+    min_physical_node_writes = *std::min_element(physical_node_writes.begin(),
+            physical_node_writes.end());
 
-    // custom statistic: compute (max - mean) / mean
+
+    // custom statistic: compute (max - min) / mean
     dist_physical_node_reads = ((double) max_physical_node_reads -
-            mean_physical_node_reads) / mean_physical_node_reads;
+            (double) min_physical_node_reads) / mean_physical_node_reads;
     dist_physical_node_writes = ((double) max_physical_node_writes -
-            mean_physical_node_writes) / mean_physical_node_writes;
+            (double) min_physical_node_writes) / mean_physical_node_writes;
 
 
     pct_on_node_combined = (double) on_node_combined / (double)

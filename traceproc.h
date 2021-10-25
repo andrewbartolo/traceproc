@@ -120,6 +120,8 @@ class Traceproc {
 
         uint64_t max_physical_node_reads = 0;
         uint64_t max_physical_node_writes = 0;
+        uint64_t min_physical_node_reads = 0;
+        uint64_t min_physical_node_writes = 0;
 
         double pct_on_node_combined = 0.0;
 
