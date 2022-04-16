@@ -96,6 +96,7 @@ class SNQueues {
         std::unordered_map<page_addr_t, std::list<frame_meta_t*>::iterator>
                 page_map;
         std::vector<std::list<frame_meta_t*>> queues_vec;
+        uint64_t total_n_promotions = 0;
         double system_time_s = 0.0;
 
         // memoize some things to keep some operations O(1)

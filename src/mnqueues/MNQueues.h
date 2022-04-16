@@ -88,6 +88,9 @@ class MNQueues {
         std::vector<std::list<node_meta_t*>::iterator> job_map;
         std::vector<std::list<node_meta_t*>> queues_vec;
         uint64_t epoch = 0;
+        uint64_t total_n_promotions = 0;
+        uint64_t total_bytes_transferred = 0;
+        uint64_t total_bytes_delay = 0;
         double system_time_s = 0.0;
 
         // memoize some things to keep some operations O(1)

@@ -322,14 +322,28 @@ MNQueues::run_rebalance()
                         // "job 1" being remapped onto a node originally mapped
                         // by "job 0". However, we can approximate the remap
                         // bitflip as the *newly-mapped* job's bitflip value.
-                        uint64_t nm_swap_bfs = jobs[lnm->job_idx].rss_bytes *
+                        uint64_t lnm_rss_bytes = jobs[lnm->job_idx].rss_bytes;
+                        uint64_t nm_rss_bytes = jobs[nm->job_idx].rss_bytes;
+                        // note the switchover
+                        uint64_t nm_swap_bfs = lnm_rss_bytes *
                                 jobs[lnm->job_idx].write_factor;
-                        uint64_t lnm_swap_bfs = jobs[nm->job_idx].rss_bytes *
+                        uint64_t lnm_swap_bfs = nm_rss_bytes *
                                 jobs[nm->job_idx].write_factor;
                         nm->interval_bfs += nm_swap_bfs;
                         nm->lifetime_bfs += nm_swap_bfs;
                         lnm->interval_bfs += lnm_swap_bfs;
                         lnm->lifetime_bfs += lnm_swap_bfs;
+
+                        // increment the total bytes transferred, as well as
+                        // as well as "total_bytes_delay", which counts the
+                        // maximum of the two amounts transferred. this allows
+                        // us to calculate a transfer delay (since the link is
+                        // assumed to be full-duplex)
+                        total_bytes_transferred += lnm_rss_bytes + nm_rss_bytes;
+                        total_bytes_delay +=
+                                std::max(lnm_rss_bytes, nm_rss_bytes);
+
+                        ++total_n_promotions;
                     }
                 }
             }
@@ -444,6 +458,8 @@ MNQueues::dump_stats(bool final)
         ss << "QUEUES" << " " << n_buckets << std::endl;
         ss << "CELL_WRITE_ENDURANCE" << " " << cell_write_endurance <<
                 std::endl;
+        ss << "PAGE_SIZE_BYTES" << " " << page_size << std::endl;
+        ss << "N_NODES" << " " << n_nodes << std::endl;
         ss << "MEMORY_BYTES_PER_NODE" << " " << n_bytes_mem_per_node <<
                 std::endl;
     }
@@ -458,6 +474,10 @@ MNQueues::dump_stats(bool final)
     ss << "MOST_WRITTEN_NODE_QUEUE" << " " << most_written_node->queue
             << std::endl;
     ss << "LOWEST_ACTIVE_QUEUE" << " " << lowest_active_queue << std::endl;
+    ss << "TOTAL_BYTES_TRANSFERRED" << " " << total_bytes_transferred
+            << std::endl;
+    ss << "TOTAL_BYTES_DELAY" << " " << total_bytes_delay << std::endl;
+    ss << "TOTAL_N_PROMOTIONS" << " " << total_n_promotions << std::endl;
     ss << "LIFETIME_EST_VIAMAX_S" << " " << lifetime_est_viamax_s << std::endl;
     ss << "LIFETIME_EST_VIAMAX_Y" << " " << lifetime_est_viamax_y << std::endl;
 

@@ -430,6 +430,8 @@ SNQueues::run()
                     fm->lifetime_bfs += lfm_bfpw;
                     lfm->interval_bfs += page_bfpw;
                     lfm->lifetime_bfs += page_bfpw;
+
+                    ++total_n_promotions;
                 }
             }
         }
@@ -506,8 +508,10 @@ SNQueues::dump_stats(bool final)
         ss << "QUEUES" << " " << n_buckets << std::endl;
         ss << "CELL_WRITE_ENDURANCE" << " " << cell_write_endurance <<
                 std::endl;
+        ss << "PAGE_SIZE_BYTES" << " " << page_size << std::endl;
         ss << "MEMORY_BYTES_REQUESTED" << " " << n_bytes_requested << std::endl;
         ss << "MEMORY_BYTES_INSIM" << " " << n_bytes_mem << std::endl;
+        ss << "MEMORY_PAGES_INSIM" << " " << n_pages_mem << std::endl;
     }
 
     ss << "FULL_PASSES" << " " << mtr.get_n_full_passes() << std::endl;
@@ -520,6 +524,7 @@ SNQueues::dump_stats(bool final)
     ss << "MOST_WRITTEN_FRAME_QUEUE" << " " << most_written_frame->queue
             << std::endl;
     ss << "LOWEST_ACTIVE_QUEUE" << " " << lowest_active_queue << std::endl;
+    ss << "TOTAL_N_PROMOTIONS" << " " << total_n_promotions << std::endl;
     ss << "LIFETIME_EST_VIAMAX_S" << " " << lifetime_est_viamax_s << std::endl;
     ss << "LIFETIME_EST_VIAMAX_Y" << " " << lifetime_est_viamax_y << std::endl;
 
