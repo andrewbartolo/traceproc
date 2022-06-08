@@ -1,4 +1,4 @@
-ALL: dir snqueues mnqueues mnstats
+ALL: dir snqueues mnqueues mnstats eventtrace
 
 dir:
 	mkdir -p bin
@@ -18,6 +18,10 @@ mnstats: dir
 			src/mnstats/Node.cpp src/mnstats/Page.cpp \
 			src/common/MemTraceReader.cpp src/common/util.cpp -Ofast -flto \
 			-Wno-write-strings -std=c++17
+
+eventtrace: dir
+	$(CXX) -o bin/eventtrace src/eventtrace/EventTrace.cpp src/common/util.cpp \
+			-Ofast -flto -Wno-write-strings -std=c++17
 
 clean:
 	rm -rf bin

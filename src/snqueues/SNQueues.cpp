@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <iterator>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 
@@ -39,6 +38,14 @@ SNQueues::SNQueues(int argc, char* argv[])
         print_message_and_die("bucket interval must be >= bits per page to "
                 "avoid skipping buckets");
 
+    // if we're outputting a trace of promotion cycles, remember the last cycle
+    // in the trace, so that we can scale by it as we loop through
+    if (n_promotions_to_event_trace != 0) {
+        trace_end_cycle = mtr.get_last_entry()->cycle;
+        event_trace = std::make_unique<std::ofstream>(
+                "snqueues-promotion-timestamps-uint64.bin",
+                std::ofstream::out | std::ofstream::binary);
+    }
 
     // preallocate space in some data structures
     queues_vec.resize(n_buckets);
@@ -79,7 +86,7 @@ SNQueues::parse_and_validate_args(int argc, char* argv[])
     page_size_log2 = 0;
 
     // parse
-    while ((c = getopt(argc, argv, "n:c:b:m:w:t:i:g:")) != -1) {
+    while ((c = getopt(argc, argv, "n:c:b:m:w:t:i:e:g:")) != -1) {
         try {
             switch (c) {
                 case 'n':
@@ -125,6 +132,10 @@ SNQueues::parse_and_validate_args(int argc, char* argv[])
                     break;
                 case 'i':
                     n_iterations = shorthand_to_integer(optarg, 1000);
+                    break;
+                case 'e':
+                    n_promotions_to_event_trace =
+                            shorthand_to_integer(optarg, 1000);
                     break;
                 case 'g':
                     n_bytes_requested = shorthand_to_integer(optarg, 1024);
@@ -432,6 +443,15 @@ SNQueues::run()
                     lfm->lifetime_bfs += page_bfpw;
 
                     ++total_n_promotions;
+
+                    // if we're within n_promotions_to_event_trace, trace
+                    // the event timestamp (cycle).
+                    if (total_n_promotions <= n_promotions_to_event_trace) {
+                        uint64_t curr_timestamp = mt.cycle +
+                                (mtr.get_n_full_passes() * trace_end_cycle);
+                        event_trace.get()->write((char*) &curr_timestamp,
+                                sizeof(curr_timestamp));
+                    }
                 }
             }
         }

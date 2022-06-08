@@ -8,8 +8,10 @@
 
 #include <cstdbool>
 #include <cstdint>
+#include <fstream>
 #include <iterator>
 #include <list>
+#include <memory>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -70,6 +72,7 @@ class SNQueues {
         double trace_time_s;
         uint64_t n_bytes_requested;
         uint64_t n_iterations = std::numeric_limits<uint64_t>::max();
+        uint64_t n_promotions_to_event_trace = 0;
 
         // derived, or from input files
         uint64_t bucket_interval;
@@ -98,6 +101,8 @@ class SNQueues {
         std::vector<std::list<frame_meta_t*>> queues_vec;
         uint64_t total_n_promotions = 0;
         double system_time_s = 0.0;
+        uint64_t trace_end_cycle;
+        std::unique_ptr<std::ofstream> event_trace;
 
         // memoize some things to keep some operations O(1)
         frame_meta_t* most_written_frame = nullptr;

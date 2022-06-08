@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <iterator>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <regex>
 #include <sstream>
@@ -45,6 +44,12 @@ MNQueues::MNQueues(int argc, char* argv[])
     if (bucket_interval < bits_per_node)
         print_message_and_die("bucket interval must be >= bits per node to "
                 "avoid skipping buckets");
+
+    if (n_promotions_to_event_trace != 0) {
+        event_trace = std::make_unique<std::ofstream>(
+                "mnqueues-promotion-timestamps-float64.bin",
+                std::ofstream::out | std::ofstream::binary);
+    }
 
     // preallocate space in some data structures
     queues_vec.resize(n_buckets);
@@ -126,7 +131,7 @@ MNQueues::parse_and_validate_args(int argc, char* argv[])
 
 
     // parse
-    while ((c = getopt(argc, argv, "n:c:l:p:i:g:t:r:j:")) != -1) {
+    while ((c = getopt(argc, argv, "n:c:l:p:i:e:g:t:r:j:")) != -1) {
         try {
             switch (c) {
                 case 'n':
@@ -143,6 +148,10 @@ MNQueues::parse_and_validate_args(int argc, char* argv[])
                     break;
                 case 'i':
                     n_iterations = shorthand_to_integer(optarg, 1000);
+                    break;
+                case 'e':
+                    n_promotions_to_event_trace =
+                            shorthand_to_integer(optarg, 1000);
                     break;
                 case 'g':
                     n_bytes_mem_per_node = shorthand_to_integer(optarg, 1024);
@@ -365,6 +374,14 @@ MNQueues::run_rebalance()
         }
 
         system_time_s += scheduler_quanta_s;
+
+        // if we're within n_promotions_to_event_trace, trace the event
+        // timestamp (system time in s)
+        if (total_n_promotions < n_promotions_to_event_trace) {
+            double curr_timestamp = system_time_s;
+            event_trace.get()->write((char*) &curr_timestamp,
+                    sizeof(curr_timestamp));
+        }
     }
 }
 

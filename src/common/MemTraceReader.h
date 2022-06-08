@@ -25,6 +25,7 @@ class MemTraceReader {
             unsigned node_num:15;
             unsigned is_write:1;
             line_addr_t line_addr:64;
+            unsigned long cycle:64;
         } memtrace_entry_t;
 
         MemTraceReader();
@@ -36,6 +37,8 @@ class MemTraceReader {
         inline uint64_t get_n_unique_entries();
         inline uint64_t get_n_reads_in_trace();
         inline uint64_t get_n_writes_in_trace();
+        memtrace_entry_t* get_first_entry();
+        memtrace_entry_t* get_last_entry();
 
         // reset all counters and stats
         void reset(bool inc_passes=true);
@@ -107,6 +110,20 @@ inline size_t
 MemTraceReader::get_n_writes_in_trace()
 {
     return n_writes_in_trace;
+}
+
+
+inline MemTraceReader::memtrace_entry_t*
+MemTraceReader::get_first_entry()
+{
+    return &buf[0];
+}
+
+
+inline MemTraceReader::memtrace_entry_t*
+MemTraceReader::get_last_entry()
+{
+    return &buf[n_unique_entries - 1];
 }
 
 

@@ -8,8 +8,10 @@
 
 #include <cstdbool>
 #include <cstdint>
+#include <fstream>
 #include <iterator>
 #include <list>
+#include <memory>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -66,6 +68,7 @@ class MNQueues {
         uint64_t line_size;
         uint64_t page_size;
         uint64_t n_iterations = std::numeric_limits<uint64_t>::max();
+        uint64_t n_promotions_to_event_trace = 0;
         uint64_t n_bytes_mem_per_node;
         double scheduler_quanta_s;
         int rebalance;
@@ -92,6 +95,7 @@ class MNQueues {
         uint64_t total_bytes_transferred = 0;
         uint64_t total_bytes_delay = 0;
         double system_time_s = 0.0;
+        std::unique_ptr<std::ofstream> event_trace;
 
         // memoize some things to keep some operations O(1)
         node_meta_t* most_written_node = nullptr;
