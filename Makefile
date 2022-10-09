@@ -1,4 +1,4 @@
-ALL: dir snstats snqueues mnstats mnqueues eventtrace
+ALL: dir snstats snqueues mnstats mnqueues eventtrace rrllc
 
 dir:
 	mkdir -p bin
@@ -27,6 +27,12 @@ mnqueues: dir
 eventtrace: dir
 	$(CXX) -o bin/eventtrace src/eventtrace/EventTrace.cpp src/common/util.cpp \
 			-Ofast -flto -Wno-write-strings -std=c++17
+
+rrllc: dir
+	$(CXX) -o bin/rrllc src/rrllc/RRLLC.cpp \
+			src/rrllc/Cache.cpp src/rrllc/Cache/Bank.cpp \
+			src/rrllc/Cache/Set.cpp src/common/MemTraceReader.cpp \
+			src/common/util.cpp -Og -g -flto -Wno-write-strings -std=c++17
 
 clean:
 	rm -rf bin
