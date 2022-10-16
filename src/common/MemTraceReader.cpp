@@ -8,10 +8,18 @@
 
 #include "MemTraceReader.h"
 #include "defs.h"
+#include "util.h"
 
 
 MemTraceReader::MemTraceReader()
 {
+}
+
+
+MemTraceReader::~MemTraceReader()
+{
+    if (ifs.is_open()) ifs.close();
+    if (buf != nullptr) delete buf;
 }
 
 
@@ -26,7 +34,7 @@ MemTraceReader::load(const std::string& input_filepath)
         throw std::runtime_error(input_filepath + " does not exist");
 
     // open the ifstream
-    std::ifstream ifs(input_filepath, std::ios::binary);
+    ifs.open(input_filepath, std::ios::binary);
 
     // find the size of the file
     ifs.seekg(0, std::ios_base::end);
@@ -39,28 +47,41 @@ MemTraceReader::load(const std::string& input_filepath)
 
     n_unique_entries = input_file_n_bytes / sizeof(memtrace_entry_t);
 
-    // allocate a buf and read the whole file into it
-    // NOTE: this will require a *lot* of memory!
-    buf = std::make_unique<memtrace_entry_t[]>(n_unique_entries);
+    // see how large of a buffer we should allocate
+    char* requested_buffer_size_str =
+            std::getenv("TRACEPROC_TRACE_BUFFER_SIZE");
+    size_t requested_buffer_size_bytes = requested_buffer_size_str ?
+            shorthand_to_integer(requested_buffer_size_str, 1024) :
+            DEFAULT_REQUESTED_BUFFER_SIZE_BYTES;
 
-    ifs.read((char*) buf.get(), input_file_n_bytes);
+    // we ensure that buffer_size_bytes % sizeof(memtrace_entry_t) == 0
+    buffer_size_entries = requested_buffer_size_bytes /
+            sizeof(memtrace_entry_t);
+    buffer_size_bytes = buffer_size_entries * sizeof(memtrace_entry_t);
+    printf("trace buffer size (bytes): %zu\n", buffer_size_bytes);
 
-    std::unordered_map<page_addr_t, uint64_t> m;
+    // allocate a buf of the size determined above
+    buf = new memtrace_entry_t[buffer_size_entries];
 
-    // iterate through once to get some info about the trace
-    for (size_t i = 0; i < n_unique_entries; ++i) {
-        buf[i].is_write ? ++n_writes_in_trace : ++n_reads_in_trace;
-        if (buf[i].is_write) m[buf[i].line_addr >> 14] += 1;
-    }
+    refill(true /* force */);
+}
 
-    // TODO make these into a library call
-    uint64_t max = 0;
-    uint64_t min = 999999999999999;
-    for (auto& kv : m) {
-        if (kv.second > max) max = kv.second;
-        if (kv.second < min) min = kv.second;
-    }
 
-    printf("MAX page write count: %zu\n", max);
-    printf("MIN page write count: %zu\n", min);
+void
+MemTraceReader::get_first_entry(memtrace_entry_t& entry)
+{
+    off_t curr_offset = ifs.tellg();
+    ifs.seekg(0, std::ios_base::beg);
+    ifs.read((char*) &entry, sizeof(entry));
+    ifs.seekg(curr_offset, std::ios_base::beg);
+}
+
+
+void
+MemTraceReader::get_last_entry(memtrace_entry_t& entry)
+{
+    off_t curr_offset = ifs.tellg();
+    ifs.seekg(-sizeof(entry), std::ios_base::end);
+    ifs.read((char*) &entry, sizeof(entry));
+    ifs.seekg(curr_offset, std::ios_base::beg);
 }

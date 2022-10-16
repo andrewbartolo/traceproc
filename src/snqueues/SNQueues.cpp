@@ -20,9 +20,6 @@ SNQueues::SNQueues(int argc, char* argv[])
     std::string memtrace_filepath = memtrace_directory + "/" + "memtrace.bin";
     mtr.load(memtrace_filepath);
 
-    if (mtr.get_n_writes_in_trace() == 0)
-        print_message_and_die("trace contains no writes; lifetime = infinity");
-
     // set some derived variables
     bucket_cap = bits_per_page * cell_write_endurance;
     bucket_interval = bucket_cap / n_buckets;
@@ -32,7 +29,6 @@ SNQueues::SNQueues(int argc, char* argv[])
     printf("n. buckets: %zu\n", n_buckets);
     printf("bucket interval: %zu\n", bucket_interval);
     printf("bucket cap: %zu\n", bucket_cap);
-    printf("n. writes in trace: %zu\n", mtr.get_n_writes_in_trace());
 
     if (bucket_interval < bits_per_page)
         print_message_and_die("bucket interval must be >= bits per page to "
@@ -41,7 +37,9 @@ SNQueues::SNQueues(int argc, char* argv[])
     // if we're outputting a trace of promotion cycles, remember the last cycle
     // in the trace, so that we can scale by it as we loop through
     if (n_promotions_to_event_trace != 0) {
-        trace_end_cycle = mtr.get_last_entry()->cycle;
+        MemTraceReader::memtrace_entry_t last_entry;
+        mtr.get_last_entry(last_entry);
+        trace_end_cycle = last_entry.cycle;
         event_trace = std::make_unique<std::ofstream>(
                 "snqueues-promotion-timestamps-uint64.bin",
                 std::ofstream::out | std::ofstream::binary);
@@ -281,7 +279,7 @@ SNQueues::run()
         }
     }
     while (!mtr.is_end_of_pass());
-    mtr.reset(false /* don't increment passes */);
+    mtr.reset();
 
 
     /*

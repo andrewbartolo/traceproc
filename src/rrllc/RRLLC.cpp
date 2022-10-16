@@ -307,7 +307,7 @@ RRLLC::dump_termination_stats()
     ss << "LLC_N_EVICTIONS" << " " << llc_n_evictions << std::endl;
 
     ss << "RRC_N_HITS" << " " << rrc_n_hits << std::endl;
-    ss << "RRC_N_ACCESSES" << " " << rrc_n_hits << std::endl;
+    ss << "RRC_N_ACCESSES" << " " << rrc_n_accesses << std::endl;
     ss << "RRC_HIT_RATE" << " " << rrc_hit_rate << std::endl;
     ss << "RRC_N_EVICTIONS" << " " << rrc_n_evictions << std::endl;
 
